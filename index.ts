@@ -1,3 +1,6 @@
+// TODO: fuzzy borders between classes, referencing Card.value from outside of card class. is this bad?
+// TODO: :any typescript decorators
+
 enum Suit {
   Hearts,
   Clubs,
@@ -54,6 +57,7 @@ class Card {
   private suit: Suit;
   public index: number;
 
+  // can call constructor with either an index, or a rank and suit.
   constructor({ rank, suit, index }: CardParams) {
     if (index !== undefined) {
       // @ts-ignore
@@ -101,17 +105,20 @@ class Hand {
     return this.numCards === 2 && this.cards[0].isPairWith(this.cards[1]);
   }
 
+  // TODO: this could be made more performant. We generate and foreach through the power set multiple times...
   get score() {
     let score = 0;
     // pairs
-    for (let pair of this.getSetsOfLength(2)) {
+    // generate all possible sets of 2 cards, check for pairs.
+    for (let pair of getAllSets(this.cards, 2, 2)) {
       if (pair[0].rank === pair[1].rank) {
         score += 2;
       }
     }
 
     // 15s
-    for (let set of this.getPowerset()) {
+    // generate all possible sets, check for sum = 15
+    for (let set of getAllSets(this.cards)) {
       const sum = set.reduce((acc: number, curr: Card) => acc + curr.value, 0);
 
       if (sum === 15) {
@@ -122,22 +129,28 @@ class Hand {
     // runs
     // sort by set length desc
     // if run and its not a subset of previously recorded run, then score it
+
+    // Is the first array a subset of the second array?
     const aIsSubsetOfB = (a: any[], b: any[]) =>
       a.every((val: any) => b.includes(val));
+
+    // Is the first array a subset of any of the arrays contained in the second array?
     const aIsSubsetOfanyB = (a: any[], b: any[]) =>
       b.some((x: any[]) => aIsSubsetOfB(a, x));
 
+    // This will hold the sets that have already been scored as runs. When we score a run of 5,6,7,8 then we can ignore
+    // the sub-runs of 5,6,7 and 6,7,8 when they come up later
     const scoredRunSets = [];
 
-    const possibleRunSets = this.getPowerset()
-      .filter((set: Card[]) => set.length > 2)
-      .sort((a: any, b: any) => b.length - a.length);
+    const possibleRunSets = getAllSets(this.cards)
+      .filter((set: Card[]) => set.length > 2) // runs have to be 3+ cards
+      .sort((a: any, b: any) => b.length - a.length); // sort by length of the possible run, so we find the longest first
 
     for (let set of possibleRunSets) {
-      const sortedSet = set.sort((a: Card, b: Card) => a.rank - b.rank);
+      const sortedSet = set.sort((a: Card, b: Card) => a.rank - b.rank); // sort each set to make it easier to detect runs
 
       if (
-        !aIsSubsetOfanyB(sortedSet, scoredRunSets) &&
+        !aIsSubsetOfanyB(sortedSet, scoredRunSets) && // make sure we haven't scored this run as part of a super-set
         sortedSet.every((card: Card, i: number) => {
           return (
             i === sortedSet.length - 1 ||
@@ -151,110 +164,77 @@ class Hand {
     }
 
     return score;
-    // return this.cards.map(card => card.value).reduce((acc, curr) => acc + curr);
+  }
+
+  // returns a hand
+  findOptimal4() {
+    if (this.cards.length < 4) {
+      return this;
+    }
+
+    const allSetsOf4 = getAllSets(this.cards, 4, 4);
+
+    let bestScore = 0;
+    let bestHand;
+
+    for (let setOf4 of allSetsOf4) {
+      const hand = new Hand(setOf4)
+      const score = hand.score;
+
+      if (score >= bestScore) {
+        bestScore = score;
+        bestHand = hand;
+      }
+    }
+
+    console.log(`    the best scoring hand was ${(bestHand as Hand).stringify()} with a score of ${bestScore} `)
+    return bestHand;
   }
 
   stringify() {
     return this.cards.map((card) => card.stringify()).join(" ");
   }
 
-  // thisHand.length Choose 4
-  // TODO: generalize to choose n
-
-  // without order, its the same as 6 choose 2, which is 6 * 5 / 2 = 15
-  // returns an array of Hands
-  // 1 2 3 4 (5 6)
-  // 1 2 3 5 (4 6)
-  // 1 2 3 6 (4 5)
-  // 1 2 4 5 (3 6)
-  // 1 2 4 6 (3 5)
-  // 1 2 5 6 (3 4)
-  // 1 3 4 5 (2 6)
-  // 1 3 4 6 (2 5)
-  // 1 3 5 6 (2 4)
-  // 1 4 5 6 (2 3)
-  // 3 4 5 6 (1 2)
-  // 2 4 5 6 (1 3)
-  // 2 3 5 6 (1 4)
-  // 2 3 4 6 (1 5)
-  // 2 3 4 5 (1 6)
-
-  // not truly powerset since we filter the empty set....
-  getPowerset() {
-    return this.cards
-      .reduce(
-        (prev: any, curr: any) => {
-          return prev.concat(prev.map((set: any) => [curr, ...set]));
-        },
-        [[]]
-      )
-      .filter((set: any) => set.length);
-  }
-
-  getSetsOfLength = (length: number) => {
-    return this.getPowerset().filter((set: any[]) => set.length === length);
-  };
-
-  choose4() {
-    const choices = [];
-
-    for (let card1 = 0; card1 < this.cards.length; card1++) {
-      for (let card2 = card1 + 1; card2 < this.cards.length; card2++) {
-        choices.push(
-          new Hand(
-            this.cards.filter(
-              (card, index) => index !== card1 && index !== card2
-            )
-          )
-        );
-      }
-    }
-
-    return choices;
-  }
 }
-
-// const card = new Card(Rank.Ace, Suit.Hearts);
-// const card = new Card({index: 32});
-// console.log(`card is ${card.stringify()} with a value of ${card.value}`);
 
 const main = () => {
   // generate every possible combination of 6 cards, generate every possible kept hand of 4 cards, and score them
-  for (let card1 = 0; card1 < 52; card1++) {
-    for (let card2 = card1 + 1; card2 < 52; card2++) {
-      for (let card3 = card2 + 1; card3 < 52; card3++) {
-        for (let card4 = card3 + 1; card4 < 52; card4++) {
-          for (let card5 = card4 + 1; card5 < 52; card5++) {
-            for (let card6 = card5 + 1; card6 < 52; card6++) {
-              // for(let starter = card2+1; card3 < 52; card3++) {
-              const hand = new Hand([
-                new Card({ index: card1 }),
-                new Card({ index: card2 }),
-                new Card({ index: card3 }),
-                new Card({ index: card4 }),
-                new Card({ index: card5 }),
-                new Card({ index: card6 }),
-              ]);
+  const NUMBER_OF_CARDS_IN_DECK = 10;
+  const deckOfCardIndexes = [...Array(NUMBER_OF_CARDS_IN_DECK - 1).keys()];
 
-              console.log(
-                `Here's a hand: ${hand.stringify()} whose score(sum) is ${
-                  hand.score
-                }`
-              );
-              const choices = hand.choose4();
-              choices.forEach((choice) => {
-                console.log(
-                  `possible choice: ${choice.stringify()} whose score(sum) is ${
-                    choice.score
-                  }`
-                );
-              });
-            }
-          }
-        }
-      }
-    }
+  const allPossibleDeals = getAllSets(deckOfCardIndexes, 6, 6);
+
+  for (let possibleDeal of allPossibleDeals) {
+
+    const hand = new Hand(
+      possibleDeal.map((index: number) => new Card({ index }))
+    );
+
+    console.log(`looking for best sub-hand of ${hand.stringify()}`)
+
+    hand.findOptimal4();
   }
+};
+
+// get all possible sets of the given array, optionally filtered by set length
+function getAllSets<T> (array: T[], minLength?: number, maxLength?: number): T[][] {
+  return array
+    .reduce(
+      (prev, curr) => {
+        const mapped = prev
+          .map((set) => [curr, ...set])
+          .filter((set) => {
+            return maxLength === undefined || set.length <= maxLength;
+          });
+
+        return prev.concat(mapped);
+      },
+      [[] as T[]]
+    )
+    .filter(
+      (set: any) =>
+        set.length > 0 && (minLength === undefined || set.length >= minLength)
+    );
 };
 
 const test = () => {
@@ -295,10 +275,5 @@ const test = () => {
   }
 };
 
-// main();
-test();
-
-// functions I need
-// every possible combination of (choose 6 cards without replacement from 52)
-// generate powerset of a hand (every possible combination of length 0,1,2,3,4... etc), order agnostic
-// generate all subsets of fixed length n (every possible pair, set of 3, etc). This -could- just filter the powerset but probably not efficient.
+main();
+// test();
